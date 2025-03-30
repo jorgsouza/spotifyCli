@@ -9,7 +9,8 @@ import { PreviousTrackUseCase } from '../application/usecases/PreviousTrackUseCa
 import { GetStatusUseCase } from '../application/usecases/GetStatusUseCase.js';
 import { GetPositionUseCase } from '../application/usecases/GetPositionUseCase.js';
 import { PlayPauseUseCase } from '../application/usecases/PlayPauseUseCase.js';
-import { GetTrackInfoUseCase } from '../application/usecases/GetTrackInfoUseCase.js';
+import { GetTrackInfoUseCase, GetTrackInfoCommand } from '../application/usecases/GetTrackInfoUseCase.js';
+import readline from 'readline';
 
 // Only show version in standard mode
 if (process.env.SPOTIFY_CLI_DEBUG !== 'true') {
@@ -22,7 +23,8 @@ const spotifyService = new DBusSpotifyService();
 // Add global options
 program
   .option('--client <name>', 'set client\'s dbus name (default: spotify)', 'spotify')
-  .option('--debug', 'enable debug output', false);
+  .option('--debug', 'enable debug output', false)
+  .version('1.9.2');
 
 const commands = [
   {
@@ -179,30 +181,103 @@ program
     }
   });
 
+// Add help command
+program
+  .command('help')
+  .description('Show help information')
+  .action(() => {
+    program.outputHelp();
+    process.exit(0);
+  });
+
+// Interactive shell mode function
+async function startShellMode() {
+  console.log('Spotify CLI Shell Mode');
+  console.log('Type a command or "exit" to quit. Type "help" for available commands.');
+  
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    prompt: 'spotify > '
+  });
+  
+  // Set up client options from any command line arguments
+  const options = program.opts();
+  if (options.client && spotifyService.setClient) {
+    spotifyService.setClient(options.client);
+  }
+  
+  // Set debug mode if requested
+  if (options.debug) {
+    process.env.SPOTIFY_CLI_DEBUG = 'true';
+  }
+  
+  rl.prompt();
+  
+  rl.on('line', async (line) => {
+    const command = line.trim();
+    
+    if (command === 'exit' || command === 'quit') {
+      console.log('Goodbye!');
+      rl.close();
+      process.exit(0);
+    } else if (command === 'help') {
+      console.log('Available commands:');
+      commands.forEach(cmd => {
+        console.log(`- ${cmd.name}: ${cmd.description}`);
+      });
+      console.log('- check: Check if Spotify is properly connected via DBus');
+      console.log('- isplaying: Check if a song is currently playing');
+      console.log('- exit: Exit the shell');
+      console.log('- help: Show this help');
+    } else {
+      // Find the command
+      const cmdConfig = commands.find(cmd => cmd.name === command);
+      
+      if (cmdConfig) {
+        try {
+          const result = await cmdConfig.useCase.execute();
+          if (result) {
+            console.log(result);
+          }
+        } catch (error) {
+          console.error(`Error: ${error.message}`);
+          
+          // Show helpful error messages
+          if (error.message.includes('Failed to connect to Spotify') ||
+              error.message.includes('No track metadata') || 
+              error.message.includes('Playback is stopped') ||
+              error.message.includes('Track information is incomplete')) {
+            console.error('Make sure Spotify is running and a song is playing.');
+          }
+        }
+      } else if (command) {
+        console.error(`Unknown command: ${command}. Type "help" for available commands.`);
+      }
+    }
+    
+    rl.prompt();
+  });
+  
+  rl.on('close', () => {
+    console.log('Have a nice day!');
+    process.exit(0);
+  });
+}
+
 commands.forEach(({ name, description, useCase }) => {
   program
     .command(name)
     .description(description)
     .action(async () => {
       try {
-        // Set the client name if provided
         const options = program.opts();
         if (options.client && spotifyService.setClient) {
           spotifyService.setClient(options.client);
         }
-        
-        // Set debug mode if requested
         if (options.debug) {
           process.env.SPOTIFY_CLI_DEBUG = 'true';
         }
-        
-        console.log(`Executing command: ${name}...`);
-        
-        // Adicionar espera para comandos que dependem de metadados
-        if (['song', 'artist', 'album', 'arturl'].includes(name)) {
-          console.log('Waiting for Spotify to update playback status and metadata...');
-        }
-        
         const result = await useCase.execute();
         if (result) {
           console.log(result);
@@ -210,25 +285,19 @@ commands.forEach(({ name, description, useCase }) => {
         process.exit(0);
       } catch (error) {
         console.error(`Error executing ${name}: ${error.message}`);
-        
-        if (error.message.includes('Failed to connect to Spotify')) {
-          console.error('Make sure Spotify is running and try again.');
-          console.error('Tip: You may need to use --client option if using a different Spotify client.');
-        } else if (error.message.includes('No track metadata') || 
-                  error.message.includes('Playback is stopped') ||
-                  error.message.includes('Track information is incomplete')) {
-          console.error('No song is currently playing or the track info is unavailable.');
-          console.error('IMPORTANT: You must PLAY A SONG in Spotify first before using this command.');
-          console.error('Try these steps:');
-          console.error('1. Make sure Spotify is open');
-          console.error('2. Play a song in Spotify');
-          console.error('3. Run "spotifycli isplaying" to verify playback status');
-          console.error('4. Then try this command again');
+        if (error.message.includes('No metadata available')) {
+          console.error('Make sure Spotify is running and a song is playing.');
         }
-        
         process.exit(1);
       }
     });
 });
 
-program.parse(process.argv);
+// Check if no arguments were provided
+if (process.argv.length === 2) {
+  // Start interactive shell mode
+  startShellMode();
+} else {
+  // Parse command line arguments
+  program.parse(process.argv);
+}

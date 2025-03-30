@@ -11,6 +11,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "debug": "node src/debug.js",
+    "debug-metadata": "node src/debug-metadata.js",
     "troubleshoot": "bash troubleshoot.sh",
     "help": "cat help.md",
     "postinstall": "node -e \"console.log('\\nSpotify CLI for Linux has been installed! You can start using it with: spotifycli\\n')\"",

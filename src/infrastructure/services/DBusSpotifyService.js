@@ -15,11 +15,13 @@ export class DBusSpotifyService extends SpotifyService {
     this.bus = dbus.sessionBus();
     this.debug = process.env.SPOTIFY_CLI_DEBUG === 'true';
     this._playerInterface = null;
+    this._propertiesInterface = null;
   }
 
   setClient(client) {
     this.client = client;
-    this._playerInterface = null; // Reset cached interface when client changes
+    this._playerInterface = null; // Reset cached interfaces when client changes
+    this._propertiesInterface = null;
   }
   
   log(...args) {
@@ -40,52 +42,58 @@ export class DBusSpotifyService extends SpotifyService {
         '/org/mpris/MediaPlayer2'
       );
       this._playerInterface = proxyObject.getInterface('org.mpris.MediaPlayer2.Player');
+      this._propertiesInterface = proxyObject.getInterface('org.freedesktop.DBus.Properties');
       return this._playerInterface;
     } catch (error) {
       throw new ConnectionError(error.message);
     }
   }
 
+  async getSpotifyProperty(propertyName) {
+    try {
+      // Make sure we have a player connection
+      await this.getSpotifyPlayer();
+      
+      if (!this._propertiesInterface) {
+        throw new Error('Properties interface not available');
+      }
+      
+      this.log(`Getting Spotify property: ${propertyName}`);
+      const result = await this._propertiesInterface.Get('org.mpris.MediaPlayer2.Player', propertyName);
+      
+      this.log(`Property ${propertyName} result:`, result);
+      return result;
+    } catch (error) {
+      this.log(`Error getting property ${propertyName}:`, error);
+      throw error;
+    }
+  }
+
   async getCurrentTrack() {
     try {
-      const player = await this.getSpotifyPlayer();
-      this.log('Getting track metadata...');
-      
-      const statusString = await player.PlaybackStatus;
-      this.log('Playback status:', statusString);
-      
-      const status = new PlaybackStatus(statusString);
-      
-      if (!status.isPlaying()) {
-        throw new NoTrackPlayingError();
-      }
-      
-      const metadata = await player.Metadata;
-      this.log('Raw metadata:', JSON.stringify(metadata, null, 2));
-      
-      if (!metadata || !metadata['xesam:title']) {
-        throw new MetadataError();
+      const metadata = await this.getSpotifyProperty('Metadata');
+      if (!metadata || Object.keys(metadata).length === 0) {
+        throw new MetadataError('No metadata available');
       }
 
+      const artist = Array.isArray(metadata['xesam:artist']) ? metadata['xesam:artist'].join(', ') : 'Unknown Artist';
+      const title = metadata['xesam:title'] || 'Unknown Title';
+      const album = metadata['xesam:album'] || 'Unknown Album';
+      const artUrl = metadata['mpris:artUrl'] || null;
+      const trackLength = metadata['mpris:length'] || 0;
+
       return new Track({
-        artist: Array.isArray(metadata['xesam:artist']) && metadata['xesam:artist'].length > 0 
-          ? metadata['xesam:artist'].join(', ') 
-          : 'Unknown Artist',
-        title: metadata['xesam:title'] || 'Unknown Title',
-        album: metadata['xesam:album'] || 'Unknown Album',
-        artUrl: metadata['mpris:artUrl'] || null,
-        trackId: metadata['mpris:trackid'] || null,
-        trackLength: metadata['mpris:length'] || 0,
+        artist,
+        title,
+        album,
+        artUrl,
+        trackLength,
       });
     } catch (error) {
-      this.log('Error while getting current track:', error.message);
-      
-      if (error instanceof ConnectionError || 
-          error instanceof NoTrackPlayingError ||
-          error instanceof MetadataError) {
+      this.log('Error in getCurrentTrack:', error);
+      if (error instanceof MetadataError) {
         throw error;
       }
-      
       throw new Error(`Failed to get current track: ${error.message}`);
     }
   }
@@ -112,8 +120,7 @@ export class DBusSpotifyService extends SpotifyService {
 
   async getPlaybackStatus() {
     try {
-      const player = await this.getSpotifyPlayer();
-      const status = await player.PlaybackStatus;
+      const status = await this.getSpotifyProperty('PlaybackStatus');
       return new PlaybackStatus(status || 'Stopped');
     } catch (error) {
       this.log('Error while getting playback status:', error.message);
@@ -122,7 +129,12 @@ export class DBusSpotifyService extends SpotifyService {
   }
 
   async getTrackPosition() {
-    const player = await this.getSpotifyPlayer();
-    return await player.Position;
+    try {
+      const position = await this.getSpotifyProperty('Position');
+      return position;
+    } catch (error) {
+      this.log('Error getting track position:', error.message);
+      return 0;
+    }
   }
 }
