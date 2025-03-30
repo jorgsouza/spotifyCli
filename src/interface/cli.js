@@ -145,7 +145,14 @@ program
       
       const player = await spotifyService.getSpotifyPlayer();
       const status = await spotifyService.getPlaybackStatus();
-      const metadata = await player.Metadata;
+      let metadata;
+
+      try {
+        metadata = await player.Metadata;
+      } catch (error) {
+        console.log('✗ Failed to retrieve metadata:', error.message);
+        metadata = null;
+      }
       
       console.log(`✓ Spotify connection: OK`);
       console.log(`✓ Playback status: ${status}`);
@@ -187,6 +194,13 @@ commands.forEach(({ name, description, useCase }) => {
         // Set debug mode if requested
         if (options.debug) {
           process.env.SPOTIFY_CLI_DEBUG = 'true';
+        }
+        
+        console.log(`Executing command: ${name}...`);
+        
+        // Adicionar espera para comandos que dependem de metadados
+        if (['song', 'artist', 'album', 'arturl'].includes(name)) {
+          console.log('Waiting for Spotify to update playback status and metadata...');
         }
         
         const result = await useCase.execute();

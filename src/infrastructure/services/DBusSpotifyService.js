@@ -39,7 +39,7 @@ export class DBusSpotifyService extends SpotifyService {
       this.log('Getting track metadata...');
       
       const status = await player.PlaybackStatus;
-      this.log('Current playback status:', status);
+      this.log('Playback status:', status);
       
       if (status !== 'Playing') {
         throw new Error('Playback is stopped or paused. Start playing a track in Spotify first.');
@@ -63,6 +63,7 @@ export class DBusSpotifyService extends SpotifyService {
         trackLength: metadata['mpris:length'] || 0,
       });
     } catch (error) {
+      this.log('Error while getting current track:', error.message);
       throw new Error(`Failed to get current track: ${error.message}`);
     }
   }
@@ -93,7 +94,8 @@ export class DBusSpotifyService extends SpotifyService {
       const status = await player.PlaybackStatus;
       return status || 'Stopped';
     } catch (error) {
-      throw new Error(`Failed to get playback status: ${error.message}`);
+      this.log('Error while getting playback status:', error.message);
+      return 'Stopped'; // Retornar "Stopped" como fallback
     }
   }
 
