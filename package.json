@@ -1,0 +1,46 @@
+{
+  "name": "spotify-cli-linux",
+  "version": "1.9.2",
+  "description": "A command line interface to Spotify on Linux",
+  "main": "src/interface/cli.js",
+  "bin": {
+    "spotifycli": "./src/interface/cli.js"
+  },
+  "scripts": {
+    "start": "node src/interface/cli.js",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "debug": "node src/debug.js",
+    "troubleshoot": "bash troubleshoot.sh",
+    "help": "cat help.md",
+    "postinstall": "node -e \"console.log('\\nSpotify CLI for Linux has been installed! You can start using it with: spotifycli\\n')\"",
+    "test": "jest"
+  },
+  "dependencies": {
+    "commander": "^11.0.0",
+    "dbus-next": "^0.10.2",
+    "node-fetch": "^2.7.0"
+  },
+  "type": "module",
+  "author": "Piotr Wittchen",
+  "license": "GPL-3.0",
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pwittchen/spotify-cli-linux.git"
+  },
+  "keywords": [
+    "spotify",
+    "cli",
+    "linux",
+    "dbus",
+    "music"
+  ],
+  "devDependencies": {
+    "eslint": "^8.45.0",
+    "prettier": "^3.0.0",
+    "jest": "^29.0.0"
+  }
+}
