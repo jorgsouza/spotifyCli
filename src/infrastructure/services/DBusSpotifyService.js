@@ -1,6 +1,12 @@
 import dbus from 'dbus-next';
 import { SpotifyService } from '../../domain/services/SpotifyService.js';
 import { Track } from '../../domain/entities/Track.js';
+import { PlaybackStatus } from '../../domain/value-objects/PlaybackStatus.js';
+import { 
+  ConnectionError, 
+  NoTrackPlayingError, 
+  MetadataError 
+} from '../../domain/errors/SpotifyServiceError.js';
 
 export class DBusSpotifyService extends SpotifyService {
   constructor(client = 'spotify') {
@@ -8,10 +14,12 @@ export class DBusSpotifyService extends SpotifyService {
     this.client = client;
     this.bus = dbus.sessionBus();
     this.debug = process.env.SPOTIFY_CLI_DEBUG === 'true';
+    this._playerInterface = null;
   }
 
   setClient(client) {
     this.client = client;
+    this._playerInterface = null; // Reset cached interface when client changes
   }
   
   log(...args) {
@@ -21,15 +29,20 @@ export class DBusSpotifyService extends SpotifyService {
   }
 
   async getSpotifyPlayer() {
+    if (this._playerInterface) {
+      return this._playerInterface;
+    }
+    
     try {
       this.log(`Connecting to ${this.client} via DBus...`);
       const proxyObject = await this.bus.getProxyObject(
         `org.mpris.MediaPlayer2.${this.client}`,
         '/org/mpris/MediaPlayer2'
       );
-      return proxyObject.getInterface('org.mpris.MediaPlayer2.Player');
+      this._playerInterface = proxyObject.getInterface('org.mpris.MediaPlayer2.Player');
+      return this._playerInterface;
     } catch (error) {
-      throw new Error(`Failed to connect to Spotify: ${error.message}`);
+      throw new ConnectionError(error.message);
     }
   }
 
@@ -38,18 +51,20 @@ export class DBusSpotifyService extends SpotifyService {
       const player = await this.getSpotifyPlayer();
       this.log('Getting track metadata...');
       
-      const status = await player.PlaybackStatus;
-      this.log('Playback status:', status);
+      const statusString = await player.PlaybackStatus;
+      this.log('Playback status:', statusString);
       
-      if (status !== 'Playing') {
-        throw new Error('Playback is stopped or paused. Start playing a track in Spotify first.');
+      const status = new PlaybackStatus(statusString);
+      
+      if (!status.isPlaying()) {
+        throw new NoTrackPlayingError();
       }
       
       const metadata = await player.Metadata;
       this.log('Raw metadata:', JSON.stringify(metadata, null, 2));
       
       if (!metadata || !metadata['xesam:title']) {
-        throw new Error('No track metadata available. Is a song playing?');
+        throw new MetadataError();
       }
 
       return new Track({
@@ -64,6 +79,13 @@ export class DBusSpotifyService extends SpotifyService {
       });
     } catch (error) {
       this.log('Error while getting current track:', error.message);
+      
+      if (error instanceof ConnectionError || 
+          error instanceof NoTrackPlayingError ||
+          error instanceof MetadataError) {
+        throw error;
+      }
+      
       throw new Error(`Failed to get current track: ${error.message}`);
     }
   }
@@ -92,14 +114,14 @@ export class DBusSpotifyService extends SpotifyService {
     try {
       const player = await this.getSpotifyPlayer();
       const status = await player.PlaybackStatus;
-      return status || 'Stopped';
+      return new PlaybackStatus(status || 'Stopped');
     } catch (error) {
       this.log('Error while getting playback status:', error.message);
-      return 'Stopped'; // Retornar "Stopped" como fallback
+      return new PlaybackStatus('Stopped');
     }
   }
 
-  async getPosition() {
+  async getTrackPosition() {
     const player = await this.getSpotifyPlayer();
     return await player.Position;
   }
